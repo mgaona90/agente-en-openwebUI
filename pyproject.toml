@@ -5,6 +5,7 @@ description = "es una prueba"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=0.40.0",
     "claude-agent-sdk>=0.1.68",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
