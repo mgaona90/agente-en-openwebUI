@@ -1,0 +1,81 @@
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  # IMAGE_NAME is built from GitLab's built-in registry variables.
+  # If using an external registry (Docker Hub, ECR, GCR), replace CI_REGISTRY_IMAGE
+  # with your image path (e.g. myorg/my-agent) and set login credentials as CI vars.
+  IMAGE_NAME: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  IMAGE_LATEST: "$CI_REGISTRY_IMAGE:latest"
+
+cache:
+  paths:
+    - .pip-cache/
+
+lint:
+  stage: lint
+  image: python:3.12-slim
+  script:
+    - pip install ruff
+    - ruff check src/ tests/
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install uv
+    - uv sync --frozen
+    - uv run pytest --tb=short -q
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    # GitLab built-in registry — works out of the box.
+    # For other registries: replace the login/push commands with the appropriate credentials.
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker build -t "$IMAGE_NAME" .
+    - docker push "$IMAGE_NAME"
+    - docker tag "$IMAGE_NAME" "$IMAGE_LATEST"
+    - docker push "$IMAGE_LATEST"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+deploy:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  # Required CI/CD variables:
+  #   KUBE_CONFIG  — base64-encoded kubeconfig for your cluster
+  #   DEPLOY_NAMESPACE — Kubernetes namespace (e.g. "agents")
+  #   ANTHROPIC_API_KEY — injected into the K8s secret
+  # Optional:
+  #   LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
+  #   OPENWEBUI_URL, OPENWEBUI_ADMIN_KEY
+  script:
+    - mkdir -p ~/.kube
+    - echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+    - AGENT_NAME=$(grep '^name:' agent-manifest.yaml | awk '{print $2}')
+    - kubectl set image deployment/$AGENT_NAME app="$IMAGE_NAME" --namespace=$DEPLOY_NAMESPACE
+    # Optional: register in OpenWebUI after deploy
+    - |
+      if [ -n "$OPENWEBUI_URL" ] && [ -n "$OPENWEBUI_ADMIN_KEY" ]; then
+        pip install uv && uv run --with httpx --with pyyaml python register_agent.py --manifest agent-manifest.yaml
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual

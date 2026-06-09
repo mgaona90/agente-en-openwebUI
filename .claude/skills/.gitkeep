@@ -1,0 +1,5 @@
+# This file ensures .claude/skills/ exists in scaffolded agents so the
+# Dockerfile's COPY .claude /app/.claude succeeds even when no skill is
+# bundled. Drop a skill folder alongside this file:
+#   .claude/skills/my-skill/SKILL.md
+# Then commit and push; the agent will discover the skill at runtime.
