@@ -17,21 +17,27 @@ def _secret(key: str, default: str = "") -> str:
         return os.environ.get(key, default)
 
 
-@st.cache_resource
 def _langfuse():
-    try:
-        from langfuse import Langfuse
-        pk = _secret("LANGFUSE_PUBLIC_KEY")
-        sk = _secret("LANGFUSE_SECRET_KEY")
-        if not pk or not sk:
-            return None
-        return Langfuse(
-            public_key=pk,
-            secret_key=sk,
-            host=_secret("LANGFUSE_HOST", "https://cloud.langfuse.com"),
-        )
-    except Exception:
-        return None
+    # Sin cache: se inicializa en cada sesión para evitar que un None
+    # cacheado persista tras corregir las keys.
+    if "langfuse_client" not in st.session_state:
+        try:
+            from langfuse import Langfuse
+            pk = _secret("LANGFUSE_PUBLIC_KEY")
+            sk = _secret("LANGFUSE_SECRET_KEY")
+            if not pk or not sk:
+                st.session_state.langfuse_client = None
+            else:
+                lf = Langfuse(
+                    public_key=pk,
+                    secret_key=sk,
+                    host=_secret("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+                )
+                lf.auth_check()
+                st.session_state.langfuse_client = lf
+        except Exception:
+            st.session_state.langfuse_client = None
+    return st.session_state.langfuse_client
 
 st.set_page_config(page_title="Chat", page_icon="💬", layout="wide")
 
