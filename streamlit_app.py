@@ -2,6 +2,7 @@ import html
 import anthropic
 import streamlit as st
 from datetime import datetime
+from system_prompt import MATIAS_PROMPT
 
 st.set_page_config(page_title="Chat", page_icon="💬", layout="wide")
 
@@ -312,7 +313,7 @@ with col_sb:
       <div class="sb-contact-avatar">🤖</div>
       <div class="sb-contact-body">
         <div class="sb-contact-row">
-          <p class="sb-contact-name">Asistente IA</p>
+          <p class="sb-contact-name">Mi amorcito, mi rey</p>
           <span class="sb-contact-time">{now_time()}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center">
@@ -330,7 +331,7 @@ with col_chat:
     <div class="chat-header">
       <div class="chat-header-avatar">🤖</div>
       <div>
-        <p class="chat-header-name">Asistente IA</p>
+        <p class="chat-header-name">Mi amorcito, mi rey</p>
         <p class="chat-header-status">en línea</p>
       </div>
       <div class="chat-header-actions">
@@ -376,7 +377,7 @@ if prompt:
         with client.messages.stream(
             model="claude-haiku-4-5-20251001",
             max_tokens=2048,
-            system="Eres un asistente útil y amigable. Responde de forma natural y conversacional.",
+            system=MATIAS_PROMPT,
             messages=[
                 {"role": m["role"], "content": m["content"]}
                 for m in st.session_state.messages

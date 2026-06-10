@@ -1,6 +1,14 @@
 """Settings loaded from env / .env."""
+import sys
+from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Import shared system prompt from repo root
+_root = Path(__file__).parent.parent.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+from system_prompt import MATIAS_PROMPT
 
 
 class Settings(BaseSettings):
@@ -18,10 +26,7 @@ class Settings(BaseSettings):
     langfuse_host: str = "https://cloud.langfuse.com"
 
     # Agent behavior
-    default_system_prompt: str = (
-        "You are a helpful assistant. "
-        "Use the tools available to you to answer questions or complete tasks."
-    )
+    default_system_prompt: str = MATIAS_PROMPT
     max_turns: int = 40
     expose_tool_results: bool = False
     log_level: str = "INFO"
