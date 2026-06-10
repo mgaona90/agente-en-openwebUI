@@ -1,4 +1,5 @@
 import html
+import os
 import anthropic
 import streamlit as st
 from datetime import datetime
@@ -7,14 +8,26 @@ from system_prompt import MATIAS_PROMPT
 MODEL = "claude-haiku-4-5-20251001"
 
 
+def _secret(key: str, default: str = "") -> str:
+    """Lee de st.secrets (local/Streamlit Cloud) o de env vars (Docker)."""
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.environ.get(key, default)
+
+
 @st.cache_resource
 def _langfuse():
     try:
         from langfuse import Langfuse
+        pk = _secret("LANGFUSE_PUBLIC_KEY")
+        sk = _secret("LANGFUSE_SECRET_KEY")
+        if not pk or not sk:
+            return None
         return Langfuse(
-            public_key=st.secrets["LANGFUSE_PUBLIC_KEY"],
-            secret_key=st.secrets["LANGFUSE_SECRET_KEY"],
-            host=st.secrets.get("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+            public_key=pk,
+            secret_key=sk,
+            host=_secret("LANGFUSE_HOST", "https://cloud.langfuse.com"),
         )
     except Exception:
         return None
@@ -385,7 +398,7 @@ if prompt:
             render_typing()
 
         # Stream response
-        client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        client = anthropic.Anthropic(api_key=_secret("ANTHROPIC_API_KEY"))
         stream_slot = st.empty()
         response_text = ""
 
