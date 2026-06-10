@@ -1,5 +1,6 @@
 import html
 import os
+from contextlib import nullcontext
 import anthropic
 import streamlit as st
 from datetime import datetime
@@ -402,59 +403,61 @@ if prompt:
         stream_slot = st.empty()
         response_text = ""
 
-        # Langfuse: abrir trace + generation antes del stream
         lf = _langfuse()
-        trace = generation = None
-        if lf:
-            trace = lf.trace(name="whatsapp-chat", input=prompt)
-            generation = trace.generation(
-                name="matias",
-                model=MODEL,
-                model_parameters={"max_tokens": 2048},
-                input=[
-                    {"role": m["role"], "content": m["content"]}
-                    for m in st.session_state.messages
-                ],
-                system_prompt=MATIAS_PROMPT,
-            )
+        messages_input = [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.messages
+        ]
 
+        # Langfuse v4: context managers anidados (nullcontext si no hay keys)
+        trace_ctx = (
+            lf.start_as_current_observation(name="whatsapp-chat", as_type="span", input=prompt)
+            if lf else nullcontext()
+        )
         final_usage = None
-        with client.messages.stream(
-            model=MODEL,
-            max_tokens=2048,
-            system=MATIAS_PROMPT,
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-        ) as stream:
-            typing_slot.empty()
-            for text in stream.text_stream:
-                response_text += text
-                escaped = html.escape(response_text)
-                stream_slot.markdown(
-                    f'<div class="msg-row msg-left">'
-                    f'  <div class="bot-mini-av">🤖</div>'
-                    f'  <div class="bubble bubble-bot">{escaped}'
-                    f'    <span class="cursor"></span>'
-                    f'    <div class="msg-meta"><span class="msg-time">{now_time()}</span></div>'
-                    f'  </div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-            final_usage = stream.get_final_message().usage
-
-        # Langfuse: cerrar generation con output y tokens
-        if generation:
-            generation.end(
-                output=response_text,
-                usage={
-                    "input": final_usage.input_tokens,
-                    "output": final_usage.output_tokens,
-                } if final_usage else None,
+        with trace_ctx as trace:
+            gen_ctx = (
+                lf.start_as_current_observation(
+                    name="matias",
+                    as_type="generation",
+                    model=MODEL,
+                    model_parameters={"max_tokens": 2048},
+                    input=messages_input,
+                ) if lf else nullcontext()
             )
-        if trace:
-            trace.update(output=response_text)
+            with gen_ctx as generation:
+                with client.messages.stream(
+                    model=MODEL,
+                    max_tokens=2048,
+                    system=MATIAS_PROMPT,
+                    messages=messages_input,
+                ) as stream:
+                    typing_slot.empty()
+                    for text in stream.text_stream:
+                        response_text += text
+                        escaped = html.escape(response_text)
+                        stream_slot.markdown(
+                            f'<div class="msg-row msg-left">'
+                            f'  <div class="bot-mini-av">🤖</div>'
+                            f'  <div class="bubble bubble-bot">{escaped}'
+                            f'    <span class="cursor"></span>'
+                            f'    <div class="msg-meta"><span class="msg-time">{now_time()}</span></div>'
+                            f'  </div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+                    final_usage = stream.get_final_message().usage
+
+                if generation and final_usage:
+                    generation.update(
+                        output=response_text,
+                        usage_details={
+                            "input": final_usage.input_tokens,
+                            "output": final_usage.output_tokens,
+                        },
+                    )
+            if trace:
+                trace.update(output=response_text)
         if lf:
             lf.flush()
 
