@@ -4,6 +4,21 @@ import streamlit as st
 from datetime import datetime
 from system_prompt import MATIAS_PROMPT
 
+MODEL = "claude-haiku-4-5-20251001"
+
+
+@st.cache_resource
+def _langfuse():
+    try:
+        from langfuse import Langfuse
+        return Langfuse(
+            public_key=st.secrets["LANGFUSE_PUBLIC_KEY"],
+            secret_key=st.secrets["LANGFUSE_SECRET_KEY"],
+            host=st.secrets.get("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+        )
+    except Exception:
+        return None
+
 st.set_page_config(page_title="Chat", page_icon="💬", layout="wide")
 
 
@@ -374,8 +389,25 @@ if prompt:
         stream_slot = st.empty()
         response_text = ""
 
+        # Langfuse: abrir trace + generation antes del stream
+        lf = _langfuse()
+        trace = generation = None
+        if lf:
+            trace = lf.trace(name="whatsapp-chat", input=prompt)
+            generation = trace.generation(
+                name="matias",
+                model=MODEL,
+                model_parameters={"max_tokens": 2048},
+                input=[
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.messages
+                ],
+                system_prompt=MATIAS_PROMPT,
+            )
+
+        final_usage = None
         with client.messages.stream(
-            model="claude-haiku-4-5-20251001",
+            model=MODEL,
             max_tokens=2048,
             system=MATIAS_PROMPT,
             messages=[
@@ -397,6 +429,21 @@ if prompt:
                     f'</div>',
                     unsafe_allow_html=True,
                 )
+            final_usage = stream.get_final_message().usage
+
+        # Langfuse: cerrar generation con output y tokens
+        if generation:
+            generation.end(
+                output=response_text,
+                usage={
+                    "input": final_usage.input_tokens,
+                    "output": final_usage.output_tokens,
+                } if final_usage else None,
+            )
+        if trace:
+            trace.update(output=response_text)
+        if lf:
+            lf.flush()
 
         final_t = now_time()
         stream_slot.markdown(bubble_bot(response_text, final_t), unsafe_allow_html=True)
